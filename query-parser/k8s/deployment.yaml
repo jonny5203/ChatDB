@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query-parser
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: query-parser
+  template:
+    metadata:
+      labels:
+        app: query-parser
+    spec:
+      containers:
+      - name: query-parser
+        image: query-parser
+        ports:
+        - containerPort: 8080

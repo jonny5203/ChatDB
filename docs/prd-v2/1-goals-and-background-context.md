@@ -1,0 +1,3 @@
+# 1. Goals and Background Context
+The primary goal is to build a portfolio-ready, cloud-native version of MindsDB using a modern microservices architecture. The platform will enable users to query machine learning models using SQL syntax. While the initial MVP will focus on the e-commerce domain to demonstrate core capabilities, the underlying platform is designed to be domain-agnostic for future expansion.
+

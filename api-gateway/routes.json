@@ -1,0 +1,10 @@
+[
+  {
+    "path": "/health",
+    "downstream_url": "http://localhost:8080/health"
+  },
+  {
+    "path": "/mock",
+    "downstream_url": "http://localhost:8080/mock"
+  }
+]

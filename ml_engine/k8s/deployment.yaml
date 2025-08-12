@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-engine
+  labels:
+    app: ml-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-engine
+  template:
+    metadata:
+      labels:
+        app: ml-engine
+    spec:
+      containers:
+      - name: ml-engine
+        image: ml-engine
+        ports:
+        - containerPort: 8080
