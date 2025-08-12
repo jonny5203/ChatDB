@@ -1,0 +1,75 @@
+# Global ignores
+
+# Log files
+*.log
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+.venv/
+venv/
+.env/
+
+# Build artifacts
+/build/
+/dist/
+*.exe
+*.test
+*.out
+target/
+.mvn/
+*.iws
+*.iml
+*.ipr
+/nbproject/
+/nbbuild/
+/nbdist/
+/.nb-gradle/
+
+# Caches
+.pytest_cache/
+.cache/
+.sts4-cache/
+.apt_generated/
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+
+# BMad Core
+.bmad-core/
+
+# Gemini
+.gemini/
+
+# Web Bundles
+web-bundles/
+
+# Pipfile.lock
+Pipfile.lock
+
+# Go
+/bin/
+/build/
+/dist/
+
+# Crush
+.crush/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# models
+models/
+
+# Java
+HELP.md
