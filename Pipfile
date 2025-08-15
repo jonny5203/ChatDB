@@ -12,6 +12,7 @@ requests = "*"
 boto3 = "*"
 moto = "*"
 python-multipart = "*"
+sqlalchemy = "*"
 
 [dev-packages]
 pytest = "*"
