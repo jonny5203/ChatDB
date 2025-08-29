@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-registry-config
+  namespace: chatdb-services
+data:
+  DATABASE_URL: "postgresql://user:password@postgres.chatdb-system.svc.cluster.local:5432/training_db"
+  S3_ENDPOINT: "http://minio.chatdb-system.svc.cluster.local:9000"
+  S3_BUCKET: "model-artifacts"
+  AWS_ACCESS_KEY_ID: "minioadmin"
+  AWS_SECRET_ACCESS_KEY: "minioadmin"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-registry
+  namespace: chatdb-services
+  labels:
+    app: model-registry
+    component: storage
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: model-registry
+  template:
+    metadata:
+      labels:
+        app: model-registry
+        version: v1
+    spec:
+      containers:
+      - name: model-registry
+        image: chatdb/model-registry:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8004
+          name: http
+        envFrom:
+        - configMapRef:
+            name: model-registry-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registry
+  namespace: chatdb-services
+  labels:
+    app: model-registry
+spec:
+  selector:
+    app: model-registry
+  ports:
+  - port: 8004
+    targetPort: 8004
+    protocol: TCP
+    name: http
+  type: ClusterIP

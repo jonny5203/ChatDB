@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-runner
+  namespace: chatdb-services
+  labels:
+    app: test-runner
+    component: testing
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: test-runner-role
+  namespace: chatdb-services
+  labels:
+    app: test-runner
+    component: testing
+rules:
+# Allow reading pods and services for service discovery during tests
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+# Allow reading configmaps for test configuration
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+# Allow reading secrets for database and service credentials (if needed)
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+# Allow creating and managing test jobs and pods for test execution
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+# Allow reading deployments for health checks
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-runner-binding
+  namespace: chatdb-services
+  labels:
+    app: test-runner
+    component: testing
+subjects:
+- kind: ServiceAccount
+  name: test-runner
+  namespace: chatdb-services
+roleRef:
+  kind: Role
+  name: test-runner-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Additional role for cross-namespace access to system resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: test-runner-system-role
+  namespace: chatdb-system
+  labels:
+    app: test-runner
+    component: testing
+rules:
+# Allow reading system services like postgres and kafka
+- apiGroups: [""]
+  resources: ["services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+# Allow reading system configmaps for connection details
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-runner-system-binding
+  namespace: chatdb-system
+  labels:
+    app: test-runner
+    component: testing
+subjects:
+- kind: ServiceAccount
+  name: test-runner
+  namespace: chatdb-services
+roleRef:
+  kind: Role
+  name: test-runner-system-role
+  apiGroup: rbac.authorization.k8s.io

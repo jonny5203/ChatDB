@@ -1,0 +1,41 @@
+# Testing framework
+pytest>=8.3.0
+pytest-asyncio>=0.23.2
+pytest-kubernetes==0.6.0
+pytest-html>=3.1.0
+pytest-cov>=3.0.0
+
+# HTTP client for API testing
+requests==2.31.0
+httpx==0.25.2
+
+# Database testing
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Message queue testing
+kafka-python==2.0.2
+
+# Load testing
+locust==2.17.0
+
+# FastAPI testing
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# Additional test utilities
+pydantic==2.4.2
+python-multipart==0.0.6
+
+# Mock and test helpers
+pytest-mock==3.12.0
+responses==0.23.3
+
+# Kubernetes Python client
+kubernetes==28.1.0
+
+# YAML processing
+pyyaml==6.0.1
+
+# Environment variable handling
+python-dotenv==1.0.0

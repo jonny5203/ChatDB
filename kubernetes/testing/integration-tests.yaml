@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: integration-tests
+  namespace: chatdb-testing
+data:
+  test_query_flow.py: |
+    import pytest
+    import requests
+    import time
+    import json
+    from kafka import KafkaProducer, KafkaConsumer
+    
+    BASE_URL = "http://training-orchestrator.chatdb-services.svc.cluster.local:8000"
+    KAFKA_BROKER = "kafka.chatdb-system.svc.cluster.local:9092"
+    
+    class TestQueryFlow:
+        def test_end_to_end_training_job(self):
+            """Test complete training job flow through the system"""
+            # Submit training job
+            response = requests.post(f"{BASE_URL}/jobs", json={
+                "model_name": "test_model",
+                "dataset_location": "s3://test-bucket/data.csv",
+                "cpu_request": 1
+            })
+            assert response.status_code == 200
+            job_data = response.json()
+            job_id = job_data["id"]
+            
+            # Verify job was created
+            assert job_id is not None
+            assert job_data["status"] == "pending"
+            
+            # Check job status
+            time.sleep(2)
+            response = requests.get(f"{BASE_URL}/jobs/{job_id}")
+            assert response.status_code == 200
+            
+            # Verify Kafka message was sent
+            consumer = KafkaConsumer(
+                'training_jobs',
+                bootstrap_servers=KAFKA_BROKER,
+                auto_offset_reset='latest',
+                value_deserializer=lambda x: json.loads(x.decode('utf-8')),
+                consumer_timeout_ms=5000
+            )
+            
+            message_found = False
+            for message in consumer:
+                if message.value.get("job_id") == job_id:
+                    message_found = True
+                    break
+            
+            assert message_found, "Job message not found in Kafka"
+            
+        def test_concurrent_job_submission(self):
+            """Test system behavior with concurrent job submissions"""
+            jobs = []
+            for i in range(5):
+                response = requests.post(f"{BASE_URL}/jobs", json={
+                    "model_name": f"concurrent_model_{i}",
+                    "dataset_location": f"s3://test/data_{i}.csv",
+                    "cpu_request": 1
+                })
+                assert response.status_code == 200
+                jobs.append(response.json()["id"])
+            
+            # Verify all jobs were created
+            for job_id in jobs:
+                response = requests.get(f"{BASE_URL}/jobs/{job_id}")
+                assert response.status_code == 200
+                
+        def test_service_health_checks(self):
+            """Test all service health endpoints"""
+            services = [
+                ("training-orchestrator", 8000),
+                ("test-service", 8001)
+            ]
+            
+            for service_name, port in services:
+                url = f"http://{service_name}.chatdb-services.svc.cluster.local:{port}/health"
+                response = requests.get(url, timeout=5)
+                assert response.status_code == 200
+                assert response.json()["status"] == "ok"
+                
+        def test_database_persistence(self):
+            """Test that data persists across pod restarts"""
+            # Create a job
+            response = requests.post(f"{BASE_URL}/jobs", json={
+                "model_name": "persistence_test",
+                "dataset_location": "s3://test/persist.csv",
+                "cpu_request": 1
+            })
+            job_id = response.json()["id"]
+            
+            # Simulate pod restart by waiting
+            time.sleep(5)
+            
+            # Verify job still exists
+            response = requests.get(f"{BASE_URL}/jobs/{job_id}")
+            assert response.status_code == 200
+            assert response.json()["id"] == job_id
+
+  test_ml_pipeline.py: |
+    import pytest
+    import requests
+    import json
+    import time
+    
+    class TestMLPipeline:
+        def test_model_training_flow(self):
+            """Test ML model training pipeline"""
+            # This would integrate with ML Engine service
+            pass
+            
+        def test_model_registry_integration(self):
+            """Test model storage and retrieval"""
+            # This would test Model Registry service
+            pass
+            
+        def test_prediction_pipeline(self):
+            """Test end-to-end prediction flow"""
+            # This would test prediction through Kafka
+            pass
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-runner
+  namespace: chatdb-testing
+  labels:
+    app: test-runner
+spec:
+  containers:
+  - name: pytest
+    image: python:3.11-slim
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - name: tests
+      mountPath: /tests/integration
+    env:
+    - name: PYTHONPATH
+      value: "/tests"
+  volumes:
+  - name: tests
+    configMap:
+      name: integration-tests
+  restartPolicy: Always

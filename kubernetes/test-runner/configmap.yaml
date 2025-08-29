@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-runner-config
+  namespace: chatdb-services
+  labels:
+    app: test-runner
+    component: testing
+data:
+  # Database connection for tests
+  DATABASE_URL: "postgresql://user:password@postgres.chatdb-system.svc.cluster.local:5432/training_db"
+  TEST_DATABASE_URL: "postgresql://user:password@postgres.chatdb-system.svc.cluster.local:5432/test_db"
+  
+  # Kafka configuration for integration tests
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.chatdb-system.svc.cluster.local:9092"
+  KAFKA_TEST_TOPIC: "test-events"
+  
+  # Service endpoints for integration testing
+  TRAINING_ORCHESTRATOR_URL: "http://training-orchestrator.chatdb-services.svc.cluster.local:8000"
+  API_GATEWAY_URL: "http://api-gateway.chatdb-services.svc.cluster.local:8080"
+  ML_ENGINE_URL: "http://ml-engine.chatdb-services.svc.cluster.local:8000"
+  QUERY_PARSER_URL: "http://query-parser.chatdb-services.svc.cluster.local:8000"
+  DB_CONNECTOR_URL: "http://db-connector.chatdb-services.svc.cluster.local:8080"
+  MODEL_REGISTRY_URL: "http://model-registry.chatdb-services.svc.cluster.local:8000"
+  PREDICTION_SERVICE_URL: "http://prediction-service.chatdb-services.svc.cluster.local:8080"
+  TEST_SERVICE_URL: "http://test-service.chatdb-services.svc.cluster.local:8001"
+  
+  # Test configuration
+  TEST_TIMEOUT: "300"  # 5 minutes per test
+  LOG_LEVEL: "DEBUG"
+  PYTEST_ARGS: "-v --tb=short --maxfail=5"
+  
+  # Test data configuration
+  TEST_DATA_PATH: "/app/test-data"
+  RESULTS_PATH: "/app/test-results"
+  
+  # Environment settings
+  ENVIRONMENT: "test"
+  DEBUG: "true"

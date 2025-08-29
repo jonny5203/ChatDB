@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locust-config
+  namespace: chatdb-testing
+data:
+  locustfile.py: |
+    from locust import HttpUser, task, between
+    import random
+    import json
+    
+    class ChatDBUser(HttpUser):
+        wait_time = between(1, 3)
+        
+        def on_start(self):
+            """Initialize user session"""
+            self.job_ids = []
+        
+        @task(5)
+        def submit_training_job(self):
+            """Submit a new training job"""
+            response = self.client.post("/jobs", json={
+                "model_name": f"load_test_model_{random.randint(1, 1000)}",
+                "dataset_location": f"s3://test/data_{random.randint(1, 100)}.csv",
+                "cpu_request": random.choice([1, 2, 4])
+            })
+            if response.status_code == 200:
+                job_id = response.json().get("id")
+                if job_id:
+                    self.job_ids.append(job_id)
+        
+        @task(3)
+        def check_job_status(self):
+            """Check status of a random job"""
+            if self.job_ids:
+                job_id = random.choice(self.job_ids)
+                self.client.get(f"/jobs/{job_id}")
+        
+        @task(2)
+        def health_check(self):
+            """Check service health"""
+            self.client.get("/health")
+        
+        @task(1)
+        def submit_query(self):
+            """Submit a natural language query"""
+            self.client.post("/parse", json={
+                "query": f"Show me data from table_{random.randint(1, 10)}",
+                "context": {"database": "test_db"}
+            })
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-master
+  namespace: chatdb-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust-master
+  template:
+    metadata:
+      labels:
+        app: locust-master
+    spec:
+      containers:
+      - name: locust
+        image: locustio/locust:latest
+        command: ["locust", "-f", "/config/locustfile.py", "--master", "--host=http://training-orchestrator.chatdb-services.svc.cluster.local:8000"]
+        ports:
+        - containerPort: 8089
+          name: web
+        - containerPort: 5557
+          name: master
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: config
+        configMap:
+          name: locust-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-worker
+  namespace: chatdb-testing
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: locust-worker
+  template:
+    metadata:
+      labels:
+        app: locust-worker
+    spec:
+      containers:
+      - name: locust
+        image: locustio/locust:latest
+        command: ["locust", "-f", "/config/locustfile.py", "--worker", "--master-host=locust-master.chatdb-testing.svc.cluster.local"]
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "125m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+      volumes:
+      - name: config
+        configMap:
+          name: locust-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-master
+  namespace: chatdb-testing
+spec:
+  selector:
+    app: locust-master
+  ports:
+  - port: 8089
+    targetPort: 8089
+    protocol: TCP
+    name: web
+  - port: 5557
+    targetPort: 5557
+    protocol: TCP
+    name: master
+  type: ClusterIP

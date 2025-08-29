@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chatdb-test-runner
+  namespace: chatdb-services
+  labels:
+    app: test-runner
+    component: testing
+spec:
+  template:
+    metadata:
+      labels:
+        app: test-runner
+        job: test-execution
+    spec:
+      restartPolicy: Never
+      serviceAccountName: test-runner
+      containers:
+      - name: test-runner
+        image: chatdb/test-runner:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-m", "pytest"]
+        args: ["-v", "--tb=short", "tests/"]
+        envFrom:
+        - configMapRef:
+            name: test-runner-config
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+        volumeMounts:
+        - name: test-results
+          mountPath: /app/test-results
+        - name: test-config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: test-results
+        emptyDir: {}
+      - name: test-config
+        configMap:
+          name: test-runner-config
+  backoffLimit: 3
+  activeDeadlineSeconds: 1800  # 30 minutes timeout
+  completions: 1
+  parallelism: 1

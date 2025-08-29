@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-engine-config
+  namespace: chatdb-services
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.chatdb-system.svc.cluster.local:9092"
+  MODEL_REGISTRY_URL: "http://model-registry.chatdb-services.svc.cluster.local:8004"
+  TRAINING_TOPIC: "training_jobs"
+  PREDICTION_TOPIC: "predictions"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-engine
+  namespace: chatdb-services
+  labels:
+    app: ml-engine
+    component: ml
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-engine
+  template:
+    metadata:
+      labels:
+        app: ml-engine
+        version: v1
+    spec:
+      containers:
+      - name: ml-engine
+        image: chatdb/ml-engine:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8003
+          name: http
+        envFrom:
+        - configMapRef:
+            name: ml-engine-config
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 45
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-engine
+  namespace: chatdb-services
+  labels:
+    app: ml-engine
+spec:
+  selector:
+    app: ml-engine
+  ports:
+  - port: 8003
+    targetPort: 8003
+    protocol: TCP
+    name: http
+  type: ClusterIP

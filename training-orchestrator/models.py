@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Enum, Integer
-from .database import Base
+from database import Base
 import enum
 
 class JobStatus(enum.Enum):

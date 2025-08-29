@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: training-orchestrator-config
+  namespace: chatdb-services
+data:
+  DATABASE_URL: "postgresql://user:password@postgres.chatdb-system.svc.cluster.local:5432/training_db"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.chatdb-system.svc.cluster.local:9092"
+  MAX_CONCURRENT_JOBS: "2"
+  DEFAULT_CPU_REQUEST: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-orchestrator
+  namespace: chatdb-services
+  labels:
+    app: training-orchestrator
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: training-orchestrator
+  template:
+    metadata:
+      labels:
+        app: training-orchestrator
+        version: v1
+    spec:
+      containers:
+      - name: training-orchestrator
+        image: chatdb/training-orchestrator:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: training-orchestrator-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: training-orchestrator
+  namespace: chatdb-services
+  labels:
+    app: training-orchestrator
+spec:
+  selector:
+    app: training-orchestrator
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: training-orchestrator-hpa
+  namespace: chatdb-services
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: training-orchestrator
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

@@ -1,0 +1,79 @@
+# TODO(human): Create the test-service Kubernetes manifest
+# Based on the specification, this should include:
+# - Deployment with test-service container
+# - Service for internal networking  
+# - Proper labels and resource limits
+# Reference: MINIKUBE_CLUSTER_SPEC.md section "4. Test Service"
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-service
+  namespace: chatdb-services
+  labels:
+    app: test-service
+spec:
+  selector:
+    app: test-service
+  ports:
+  - port: 8001
+    targetPort: 8001
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+# TODO(human): Add the Deployment section below
+# You need to create:
+# - apiVersion: apps/v1
+# - kind: Deployment 
+# - metadata with name: test-service, namespace: chatdb-services, labels
+# - spec with replicas, selector, and template
+# - template should have:
+#   - containers section with test-service container
+#   - image: chatdb/test-service:latest
+#   - ports: containerPort 8001
+#   - livenessProbe and readinessProbe pointing to port 8001 path "/"
+#   - resources with requests/limits for memory and CPU
+# 
+# Reference the training-orchestrator.yaml file for the exact pattern!
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-service
+  namespace: chatdb-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-service
+  template:
+    metadata:
+      labels:
+        app: test-service
+    spec:
+      containers:
+      - name: test-service-containers
+        image: chatdb/test-service:latest
+        ports:
+          - containerPort: 8001
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8001
+          initialDelaySeconds: 15 
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            cpu: "250m"
+            memory: "156Mi"

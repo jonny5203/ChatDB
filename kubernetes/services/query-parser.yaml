@@ -1,0 +1,95 @@
+# Query Parser Service - Port 8002
+# Processes natural language queries and connects to Kafka
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: query-parser-config
+  namespace: chatdb-services
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.chatdb-system.svc.cluster.local:9092"
+  QUERY_TOPIC: "queries"
+  RESULT_TOPIC: "query_results"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: query-parser
+  namespace: chatdb-services
+  labels:
+    app: query-parser
+spec:
+  selector:
+    app: query-parser
+  ports:
+  - port: 8002
+    targetPort: 8002
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+# TODO(human): Add the Deployment section
+# Similar to test-service but with these key differences:
+# - Port 8002 instead of 8001
+# - Health check path: "/health" instead of "/"
+# - Add envFrom section to use query-parser-config ConfigMap
+# - Higher resource limits: memory requests "512Mi", limits "1Gi"
+# - CPU requests "250m", limits "500m"
+# - Image: chatdb/query-parser:latest
+#
+# Pattern to follow:
+# apiVersion: apps/v1
+# kind: Deployment  
+# metadata: (name, namespace, labels)
+# spec: (replicas, selector, template)
+# template.spec.containers: (name, image, ports, envFrom, resources, probes)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query-parser
+  namespace: chatdb-services
+  labels: 
+    app: query-parser
+spec:
+  replicas: 1
+  selector: 
+    matchLabels: 
+      app: query-parser
+  template:
+    metadata:
+      labels:
+        app: query-parser
+    spec:
+      containers:
+      - name: query-parser
+        image: chatdb/query-parser:latest
+        ports: 
+        - containerPort: 8002
+          name: http
+        envFrom:
+        - configMapRef:
+            name: query-parser-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
