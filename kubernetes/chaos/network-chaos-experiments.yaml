@@ -1,0 +1,181 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: training-orchestrator-network-delay
+  namespace: chaos-testing
+spec:
+  action: delay
+  mode: one
+  duration: "120s"
+  delay:
+    latency: "100ms"
+    correlation: "100"
+    jitter: "10ms"
+  direction: to
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chatdb-system
+      labelSelectors:
+        app: postgres
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: training-orchestrator
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: service-mesh-packet-loss
+  namespace: chaos-testing
+spec:
+  action: loss
+  mode: all
+  duration: "90s"
+  loss:
+    loss: "5"
+    correlation: "25"
+  direction: both
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chatdb-services
+      expressionSelectors:
+        - key: app
+          operator: In
+          values: ["query-parser", "ml-engine"]
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: training-orchestrator
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: kafka-network-partition
+  namespace: chaos-testing
+spec:
+  action: partition
+  mode: all
+  duration: "60s"
+  direction: both
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chatdb-services
+      expressionSelectors:
+        - key: app
+          operator: In
+          values: ["training-orchestrator", "ml-engine", "query-parser"]
+  selector:
+    namespaces:
+      - chatdb-system
+    labelSelectors:
+      app: kafka
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: database-connection-corruption
+  namespace: chaos-testing
+spec:
+  action: corrupt
+  mode: one
+  duration: "45s"
+  corrupt:
+    corrupt: "10"
+    correlation: "100"
+  direction: to
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chatdb-system
+      labelSelectors:
+        app: postgres
+  selector:
+    namespaces:
+      - chatdb-services
+    expressionSelectors:
+      - key: app
+        operator: In
+        values: ["training-orchestrator", "model-registry"]
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: inter-service-bandwidth-limit
+  namespace: chaos-testing
+spec:
+  action: bandwidth
+  mode: all
+  duration: "180s"
+  bandwidth:
+    rate: "1mbps"
+    limit: 20971520
+    buffer: 10000
+  direction: both
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chatdb-services
+      labelSelectors:
+        app: test-service
+  selector:
+    namespaces:
+      - chatdb-services
+    expressionSelectors:
+      - key: app
+        operator: In
+        values: ["training-orchestrator", "query-parser", "ml-engine", "model-registry"]
+---
+# Complete network isolation test
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: complete-service-isolation
+  namespace: chaos-testing
+spec:
+  action: partition
+  mode: one
+  duration: "30s"
+  direction: both
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chatdb-services
+      expressionSelectors:
+        - key: app
+          operator: NotIn
+          values: ["training-orchestrator"]
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: training-orchestrator
+---
+# DNS chaos for service discovery testing
+apiVersion: chaos-mesh.org/v1alpha1
+kind: DNSChaos
+metadata:
+  name: service-discovery-dns-chaos
+  namespace: chaos-testing
+spec:
+  action: error
+  mode: all
+  duration: "60s"
+  patterns:
+    - "training-orchestrator.chatdb-services.svc.cluster.local"
+    - "*.chatdb-system.svc.cluster.local"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: query-parser

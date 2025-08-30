@@ -1,0 +1,141 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: training-orchestrator-pod-kill
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one
+  duration: "30s"
+  scheduler:
+    cron: "@every 5m"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: training-orchestrator
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: query-parser-pod-failure
+  namespace: chaos-testing
+spec:
+  action: pod-failure
+  mode: fixed-percent
+  value: "50"
+  duration: "60s"
+  scheduler:
+    cron: "@every 10m"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: query-parser
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: ml-engine-container-kill
+  namespace: chaos-testing
+spec:
+  action: container-kill
+  mode: one
+  duration: "45s"
+  containerNames:
+    - ml-engine
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: ml-engine
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: model-registry-random-failure
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: random-max-percent
+  value: "30"
+  duration: "90s"
+  scheduler:
+    cron: "@every 15m"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: model-registry
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: test-service-intermittent-failure
+  namespace: chaos-testing
+spec:
+  action: pod-failure
+  mode: one
+  duration: "30s"
+  scheduler:
+    cron: "@every 8m"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: test-service
+---
+# Comprehensive pod failure experiment for all services
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: all-services-sequential-failure
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one
+  duration: "120s"
+  selector:
+    namespaces:
+      - chatdb-services
+    expressionSelectors:
+      - key: app
+        operator: In
+        values: ["training-orchestrator", "query-parser", "ml-engine", "model-registry", "prediction-service", "test-service"]
+---
+# Database pod chaos
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: postgres-pod-restart
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one
+  duration: "60s"
+  scheduler:
+    cron: "@every 30m"
+  selector:
+    namespaces:
+      - chatdb-system
+    labelSelectors:
+      app: postgres
+---
+# Kafka pod chaos
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: kafka-broker-failure
+  namespace: chaos-testing
+spec:
+  action: pod-failure
+  mode: fixed-percent
+  value: "50"
+  duration: "90s"
+  scheduler:
+    cron: "@every 20m"
+  selector:
+    namespaces:
+      - chatdb-system
+    labelSelectors:
+      app: kafka

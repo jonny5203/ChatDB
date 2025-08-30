@@ -1,0 +1,223 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chaos-testing
+---
+# Chaos Mesh CustomResourceDefinitions and RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chaos-controller-manager
+  namespace: chaos-testing
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chaos-controller-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["*"]
+- apiGroups: ["chaos-mesh.org"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chaos-controller-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chaos-controller-manager
+subjects:
+- kind: ServiceAccount
+  name: chaos-controller-manager
+  namespace: chaos-testing
+---
+# Chaos Mesh Dashboard
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-dashboard
+  namespace: chaos-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaos-dashboard
+  template:
+    metadata:
+      labels:
+        app: chaos-dashboard
+    spec:
+      serviceAccountName: chaos-controller-manager
+      containers:
+      - name: chaos-dashboard
+        image: chaosapi/chaos-dashboard:v2.6.0
+        ports:
+        - containerPort: 2333
+        env:
+        - name: CHAOS_DASHBOARD_CLUSTER_MODE
+          value: "true"
+        - name: CHAOS_DASHBOARD_ENABLE_FILTER_NAMESPACE
+          value: "false"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chaos-dashboard
+  namespace: chaos-testing
+spec:
+  selector:
+    app: chaos-dashboard
+  ports:
+  - port: 2333
+    targetPort: 2333
+    protocol: TCP
+  type: ClusterIP
+---
+# Chaos Mesh Controller Manager
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-controller-manager
+  namespace: chaos-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaos-controller-manager
+  template:
+    metadata:
+      labels:
+        app: chaos-controller-manager
+    spec:
+      serviceAccountName: chaos-controller-manager
+      containers:
+      - name: chaos-controller-manager
+        image: chaosapi/chaos-mesh:v2.6.0
+        command: ["/manager"]
+        args:
+        - --metrics-addr=0.0.0.0:8080
+        - --enable-leader-election
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: TEMPLATE_NAMESPACE
+          value: chaos-testing
+        - name: ALLOWED_NAMESPACES
+          value: "chatdb-services,chatdb-system"
+        - name: TARGET_NAMESPACE
+          value: "chatdb-services"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+# Chaos Daemon (runs on each node)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: chaos-daemon
+  namespace: chaos-testing
+spec:
+  selector:
+    matchLabels:
+      app: chaos-daemon
+  template:
+    metadata:
+      labels:
+        app: chaos-daemon
+    spec:
+      serviceAccountName: chaos-controller-manager
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: chaos-daemon
+        image: chaosapi/chaos-daemon:v2.6.0
+        command: ["/chaos-daemon"]
+        args:
+        - --metrics-addr=0.0.0.0:31766
+        - --runtime=containerd
+        - --socket-path=/run/containerd/containerd.sock
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: RUNTIME
+          value: containerd
+        ports:
+        - containerPort: 31766
+          name: metrics
+        - containerPort: 31767
+          name: grpc
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: socket-path
+          mountPath: /run/containerd
+        - name: sys-path
+          mountPath: /sys
+        - name: dev-path
+          mountPath: /dev
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "125m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+      volumes:
+      - name: socket-path
+        hostPath:
+          path: /run/containerd
+      - name: sys-path
+        hostPath:
+          path: /sys
+      - name: dev-path
+        hostPath:
+          path: /dev
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

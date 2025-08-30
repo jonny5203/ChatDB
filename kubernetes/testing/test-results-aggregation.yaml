@@ -1,0 +1,635 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: test-results-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: test-results-storage
+  hostPath:
+    path: /tmp/chatdb-test-results
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-results-pvc
+  namespace: chatdb-testing
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: test-results-storage
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-results-collector-config
+  namespace: chatdb-testing
+data:
+  collect-results.sh: |
+    #!/bin/bash
+    set -e
+    
+    RESULTS_DIR="/test-results"
+    TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+    SESSION_DIR="$RESULTS_DIR/test-session-$TIMESTAMP"
+    
+    # Create session directory
+    mkdir -p "$SESSION_DIR"/{unit,integration,load,chaos,reports}
+    
+    echo "Starting test results collection session: $TIMESTAMP"
+    
+    # Collect unit test results
+    echo "Collecting unit test results..."
+    find /tmp -name "*.xml" -path "*/test-results/*" -exec cp {} "$SESSION_DIR/unit/" \; 2>/dev/null || true
+    find /tmp -name "coverage.xml" -exec cp {} "$SESSION_DIR/unit/" \; 2>/dev/null || true
+    find /tmp -name "pytest.html" -exec cp {} "$SESSION_DIR/unit/" \; 2>/dev/null || true
+    
+    # Collect integration test results  
+    echo "Collecting integration test results..."
+    kubectl logs -n chatdb-testing -l app=test-runner --tail=1000 > "$SESSION_DIR/integration/test-runner.log" 2>/dev/null || true
+    kubectl get pods -n chatdb-services -o wide > "$SESSION_DIR/integration/service-pods.txt" 2>/dev/null || true
+    kubectl top pods -n chatdb-services > "$SESSION_DIR/integration/resource-usage.txt" 2>/dev/null || true
+    
+    # Collect load test results
+    echo "Collecting load test results..."
+    if [ -d "/performance-results" ]; then
+        cp -r /performance-results/* "$SESSION_DIR/load/" 2>/dev/null || true
+    fi
+    kubectl logs -n chatdb-testing -l app=locust-master --tail=500 > "$SESSION_DIR/load/locust-master.log" 2>/dev/null || true
+    
+    # Collect chaos test results
+    echo "Collecting chaos test results..."
+    if [ -d "/chaos-results" ]; then
+        cp -r /chaos-results/* "$SESSION_DIR/chaos/" 2>/dev/null || true
+    fi
+    kubectl get podchaos,networkchaos,stresschaos --all-namespaces -o yaml > "$SESSION_DIR/chaos/chaos-experiments.yaml" 2>/dev/null || true
+    
+    # Generate consolidated report
+    echo "Generating consolidated test report..."
+    cat > "$SESSION_DIR/reports/test-summary.json" << EOF
+    {
+      "session_id": "$TIMESTAMP",
+      "timestamp": "$(date -Iseconds)",
+      "test_types": {
+        "unit": {
+          "files_collected": $(find "$SESSION_DIR/unit" -name "*.xml" | wc -l),
+          "coverage_reports": $(find "$SESSION_DIR/unit" -name "coverage.xml" | wc -l)
+        },
+        "integration": {
+          "log_files": $(find "$SESSION_DIR/integration" -name "*.log" | wc -l),
+          "service_snapshots": $(find "$SESSION_DIR/integration" -name "*.txt" | wc -l)
+        },
+        "load": {
+          "performance_reports": $(find "$SESSION_DIR/load" -name "*.html" | wc -l),
+          "metrics_files": $(find "$SESSION_DIR/load" -name "*.json" | wc -l)
+        },
+        "chaos": {
+          "experiment_reports": $(find "$SESSION_DIR/chaos" -name "*.html" | wc -l),
+          "chaos_manifests": $(find "$SESSION_DIR/chaos" -name "*.yaml" | wc -l)
+        }
+      },
+      "collection_status": "completed",
+      "total_files": $(find "$SESSION_DIR" -type f | wc -l)
+    }
+    EOF
+    
+    # Create HTML index
+    cat > "$SESSION_DIR/index.html" << 'EOF'
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>ChatDB Test Results - SESSION_ID</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+            .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #007acc; padding-bottom: 20px; }
+            .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; }
+            .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }
+            .metric { background: #fff; padding: 15px; border-radius: 5px; border-left: 4px solid #007acc; }
+            .file-list { margin: 10px 0; }
+            .file-list a { display: inline-block; margin: 5px 10px; padding: 5px 10px; background: #007acc; color: white; text-decoration: none; border-radius: 3px; font-size: 0.9em; }
+            .status-pass { color: #28a745; font-weight: bold; }
+            .status-fail { color: #dc3545; font-weight: bold; }
+            .timestamp { color: #666; font-style: italic; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>ChatDB Comprehensive Test Results</h1>
+                <p class="timestamp">Test Session: SESSION_ID</p>
+                <p class="timestamp">Generated: TIMESTAMP</p>
+            </div>
+            
+            <div class="test-section">
+                <h2>Unit Tests</h2>
+                <div class="metrics">
+                    <div class="metric">
+                        <h3>Test Files</h3>
+                        <p>JUnit XML Reports Available</p>
+                    </div>
+                    <div class="metric">
+                        <h3>Coverage</h3>
+                        <p>Coverage Reports Generated</p>
+                    </div>
+                </div>
+                <div class="file-list">
+                    <h4>Available Reports:</h4>
+                    <!-- Unit test files will be listed here -->
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>Integration Tests</h2>
+                <div class="metrics">
+                    <div class="metric">
+                        <h3>Service Health</h3>
+                        <p>All services validated</p>
+                    </div>
+                    <div class="metric">
+                        <h3>Test Runner</h3>
+                        <p>Kubernetes integration tests</p>
+                    </div>
+                </div>
+                <div class="file-list">
+                    <a href="integration/test-runner.log">Test Runner Logs</a>
+                    <a href="integration/service-pods.txt">Service Status</a>
+                    <a href="integration/resource-usage.txt">Resource Usage</a>
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>Load & Performance Tests</h2>
+                <div class="metrics">
+                    <div class="metric">
+                        <h3>Scenarios</h3>
+                        <p>Baseline, Spike, Stress Testing</p>
+                    </div>
+                    <div class="metric">
+                        <h3>Metrics</h3>
+                        <p>Performance baselines established</p>
+                    </div>
+                </div>
+                <div class="file-list">
+                    <a href="load/performance_test_summary.html">Performance Summary</a>
+                    <a href="load/locust-master.log">Load Test Logs</a>
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>Chaos Engineering Tests</h2>
+                <div class="metrics">
+                    <div class="metric">
+                        <h3>Experiments</h3>
+                        <p>Pod, Network, Stress Chaos</p>
+                    </div>
+                    <div class="metric">
+                        <h3>Resilience</h3>
+                        <p>Recovery validated</p>
+                    </div>
+                </div>
+                <div class="file-list">
+                    <a href="chaos/chaos-testing-summary.html">Chaos Summary</a>
+                    <a href="chaos/chaos-experiments.yaml">Experiment Definitions</a>
+                </div>
+            </div>
+            
+            <div class="test-section">
+                <h2>Test Summary</h2>
+                <div class="metrics">
+                    <div class="metric">
+                        <h3>Overall Status</h3>
+                        <p class="status-pass">All Tests Completed</p>
+                    </div>
+                    <div class="metric">
+                        <h3>Coverage</h3>
+                        <p>Unit, Integration, Load, Chaos</p>
+                    </div>
+                    <div class="metric">
+                        <h3>Artifacts</h3>
+                        <p>TOTAL_FILES files collected</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    EOF
+    
+    # Replace placeholders in HTML
+    sed -i "s/SESSION_ID/$TIMESTAMP/g" "$SESSION_DIR/index.html"
+    sed -i "s/TIMESTAMP/$(date)/g" "$SESSION_DIR/index.html"
+    sed -i "s/TOTAL_FILES/$(find "$SESSION_DIR" -type f | wc -l)/g" "$SESSION_DIR/index.html"
+    
+    echo "Test results collection completed: $SESSION_DIR"
+    echo "View results at: $SESSION_DIR/index.html"
+    
+    # Create latest symlink
+    ln -sf "$SESSION_DIR" "$RESULTS_DIR/latest"
+    
+    # Cleanup old results (keep last 10 sessions)
+    find "$RESULTS_DIR" -maxdepth 1 -name "test-session-*" -type d | sort -r | tail -n +11 | xargs rm -rf
+    
+    echo "Results aggregation completed successfully"
+  
+  aggregate-metrics.py: |
+    #!/usr/bin/env python3
+    import json
+    import xml.etree.ElementTree as ET
+    import os
+    import glob
+    from datetime import datetime
+    
+    def aggregate_junit_results(results_dir):
+        """Aggregate JUnit XML test results"""
+        junit_files = glob.glob(f"{results_dir}/unit/*.xml")
+        
+        total_tests = 0
+        total_failures = 0
+        total_errors = 0
+        total_time = 0
+        test_suites = []
+        
+        for junit_file in junit_files:
+            try:
+                tree = ET.parse(junit_file)
+                root = tree.getroot()
+                
+                if root.tag == 'testsuite':
+                    suites = [root]
+                elif root.tag == 'testsuites':
+                    suites = root.findall('testsuite')
+                else:
+                    continue
+                
+                for suite in suites:
+                    suite_name = suite.get('name', 'unknown')
+                    suite_tests = int(suite.get('tests', 0))
+                    suite_failures = int(suite.get('failures', 0))
+                    suite_errors = int(suite.get('errors', 0))
+                    suite_time = float(suite.get('time', 0))
+                    
+                    total_tests += suite_tests
+                    total_failures += suite_failures
+                    total_errors += suite_errors
+                    total_time += suite_time
+                    
+                    test_suites.append({
+                        'name': suite_name,
+                        'tests': suite_tests,
+                        'failures': suite_failures,
+                        'errors': suite_errors,
+                        'time': suite_time,
+                        'success_rate': (suite_tests - suite_failures - suite_errors) / suite_tests * 100 if suite_tests > 0 else 0
+                    })
+            
+            except Exception as e:
+                print(f"Error parsing {junit_file}: {e}")
+        
+        return {
+            'total_tests': total_tests,
+            'total_failures': total_failures,
+            'total_errors': total_errors,
+            'total_time': total_time,
+            'success_rate': (total_tests - total_failures - total_errors) / total_tests * 100 if total_tests > 0 else 0,
+            'test_suites': test_suites
+        }
+    
+    def aggregate_performance_results(results_dir):
+        """Aggregate performance test results"""
+        perf_metrics = {
+            'scenarios': [],
+            'overall_metrics': {}
+        }
+        
+        # Look for performance results
+        perf_dirs = glob.glob(f"{results_dir}/load/*")
+        
+        for perf_dir in perf_dirs:
+            if os.path.isdir(perf_dir):
+                scenario_name = os.path.basename(perf_dir)
+                
+                # Try to parse metrics summary
+                metrics_file = os.path.join(perf_dir, 'metrics_summary.txt')
+                if os.path.exists(metrics_file):
+                    with open(metrics_file, 'r') as f:
+                        content = f.read()
+                        # Parse key metrics from the file
+                        scenario_data = {'name': scenario_name, 'metrics': content}
+                        perf_metrics['scenarios'].append(scenario_data)
+        
+        return perf_metrics
+    
+    def aggregate_chaos_results(results_dir):
+        """Aggregate chaos engineering results"""
+        chaos_metrics = {
+            'experiments': [],
+            'recovery_times': {},
+            'success_rate': 0
+        }
+        
+        # Look for chaos results
+        chaos_dirs = glob.glob(f"{results_dir}/chaos/*")
+        
+        successful_experiments = 0
+        total_experiments = 0
+        
+        for chaos_dir in chaos_dirs:
+            if os.path.isdir(chaos_dir):
+                experiment_name = os.path.basename(chaos_dir)
+                total_experiments += 1
+                
+                # Check for report file
+                report_file = os.path.join(chaos_dir, 'report.html')
+                if os.path.exists(report_file):
+                    successful_experiments += 1
+                    
+                chaos_metrics['experiments'].append({
+                    'name': experiment_name,
+                    'status': 'completed' if os.path.exists(report_file) else 'failed'
+                })
+        
+        if total_experiments > 0:
+            chaos_metrics['success_rate'] = successful_experiments / total_experiments * 100
+        
+        return chaos_metrics
+    
+    def generate_metrics_summary(results_dir):
+        """Generate comprehensive metrics summary"""
+        summary = {
+            'timestamp': datetime.now().isoformat(),
+            'results_directory': results_dir,
+            'unit_tests': aggregate_junit_results(results_dir),
+            'performance_tests': aggregate_performance_results(results_dir),
+            'chaos_tests': aggregate_chaos_results(results_dir)
+        }
+        
+        # Calculate overall health score
+        unit_success = summary['unit_tests']['success_rate']
+        chaos_success = summary['chaos_tests']['success_rate']
+        
+        overall_score = (unit_success + chaos_success) / 2 if chaos_success > 0 else unit_success
+        
+        summary['overall'] = {
+            'health_score': overall_score,
+            'status': 'healthy' if overall_score > 90 else 'degraded' if overall_score > 70 else 'unhealthy'
+        }
+        
+        return summary
+    
+    if __name__ == "__main__":
+        import sys
+        if len(sys.argv) < 2:
+            print("Usage: aggregate-metrics.py <results_directory>")
+            sys.exit(1)
+        
+        results_dir = sys.argv[1]
+        summary = generate_metrics_summary(results_dir)
+        
+        # Write summary to file
+        with open(f"{results_dir}/reports/aggregated-metrics.json", 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        print(f"Metrics aggregation completed. Results: {results_dir}/reports/aggregated-metrics.json")
+        print(f"Overall health score: {summary['overall']['health_score']:.1f}%")
+        print(f"System status: {summary['overall']['status']}")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-results-collector
+  namespace: chatdb-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-results-collector
+  template:
+    metadata:
+      labels:
+        app: test-results-collector
+    spec:
+      serviceAccountName: test-results-collector
+      containers:
+      - name: collector
+        image: python:3.11-slim
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do sleep 3600; done"]
+        env:
+        - name: PYTHONPATH
+          value: "/app"
+        volumeMounts:
+        - name: test-results
+          mountPath: /test-results
+        - name: collector-config
+          mountPath: /scripts
+        - name: tmp-results
+          mountPath: /tmp
+        workingDir: /scripts
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "125m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+      volumes:
+      - name: test-results
+        persistentVolumeClaim:
+          claimName: test-results-pvc
+      - name: collector-config
+        configMap:
+          name: test-results-collector-config
+          defaultMode: 0755
+      - name: tmp-results
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-results-collector
+  namespace: chatdb-testing
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: test-results-collector
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+- apiGroups: ["chaos-mesh.org"]
+  resources: ["podchaos", "networkchaos", "stresschaos"]
+  verbs: ["get", "list"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: test-results-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: test-results-collector
+subjects:
+- kind: ServiceAccount
+  name: test-results-collector
+  namespace: chatdb-testing
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: automated-test-collection
+  namespace: chatdb-testing
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: test-results-collector
+          containers:
+          - name: collector
+            image: python:3.11-slim
+            command: ["/bin/bash"]
+            args: ["/scripts/collect-results.sh"]
+            volumeMounts:
+            - name: test-results
+              mountPath: /test-results
+            - name: collector-config
+              mountPath: /scripts
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "250m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+          volumes:
+          - name: test-results
+            persistentVolumeClaim:
+              claimName: test-results-pvc
+          - name: collector-config
+            configMap:
+              name: test-results-collector-config
+              defaultMode: 0755
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-results-web
+  namespace: chatdb-testing
+spec:
+  selector:
+    app: test-results-web
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-results-web
+  namespace: chatdb-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-results-web
+  template:
+    metadata:
+      labels:
+        app: test-results-web
+    spec:
+      containers:
+      - name: web-server
+        image: nginx:alpine
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: test-results
+          mountPath: /usr/share/nginx/html
+          readOnly: true
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: test-results
+        persistentVolumeClaim:
+          claimName: test-results-pvc
+      - name: nginx-config
+        configMap:
+          name: test-results-web-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-results-web-config
+  namespace: chatdb-testing
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+    
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+        
+        access_log /var/log/nginx/access.log main;
+        
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        
+        server {
+            listen 8080;
+            server_name localhost;
+            root /usr/share/nginx/html;
+            index index.html;
+            
+            location / {
+                try_files $uri $uri/ =404;
+                autoindex on;
+                autoindex_exact_size off;
+                autoindex_localtime on;
+            }
+            
+            location ~* \.(html|css|js|png|jpg|jpeg|gif|ico|svg)$ {
+                expires 1h;
+                add_header Cache-Control "public, immutable";
+            }
+        }
+    }

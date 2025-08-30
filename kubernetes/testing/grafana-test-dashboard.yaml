@@ -1,0 +1,621 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-test-dashboard-config
+  namespace: chatdb-testing
+  labels:
+    grafana_dashboard: "1"
+data:
+  chatdb-testing-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "ChatDB Testing Dashboard",
+        "tags": ["chatdb", "testing", "metrics"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Test Execution Overview",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "increase(test_executions_total[24h])",
+                "legendFormat": "Total Tests (24h)"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 6,
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "id": 2,
+            "title": "Test Success Rate",
+            "type": "gauge",
+            "targets": [
+              {
+                "expr": "(increase(test_passes_total[24h]) / increase(test_executions_total[24h])) * 100",
+                "legendFormat": "Success Rate %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0,
+                "max": 100,
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "green",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 6,
+              "x": 6,
+              "y": 0
+            }
+          },
+          {
+            "id": 3,
+            "title": "Test Execution Time Trend",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "avg(test_duration_seconds) by (test_type)",
+                "legendFormat": "{{test_type}} Avg Duration"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "unit": "s"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 0
+            }
+          },
+          {
+            "id": 4,
+            "title": "Unit Test Results",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "test_suite_results",
+                "legendFormat": "Test Suite: {{suite_name}}",
+                "format": "table"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "displayMode": "table"
+                }
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 8
+            }
+          },
+          {
+            "id": 5,
+            "title": "Performance Test Metrics",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+                "legendFormat": "95th Percentile Response Time"
+              },
+              {
+                "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+                "legendFormat": "50th Percentile Response Time"
+              },
+              {
+                "expr": "rate(http_requests_total[5m])",
+                "legendFormat": "Request Rate"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "unit": "s"
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 8
+            }
+          },
+          {
+            "id": 6,
+            "title": "Chaos Engineering Results",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "chaos_experiments_successful",
+                "legendFormat": "Successful Experiments"
+              },
+              {
+                "expr": "chaos_experiments_total",
+                "legendFormat": "Total Experiments"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.7
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              }
+            },
+            "gridPos": {
+              "h": 6,
+              "w": 8,
+              "x": 0,
+              "y": 16
+            }
+          },
+          {
+            "id": 7,
+            "title": "Service Recovery Times",
+            "type": "bargauge",
+            "targets": [
+              {
+                "expr": "avg(service_recovery_time_seconds) by (service_name)",
+                "legendFormat": "{{service_name}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 30
+                    },
+                    {
+                      "color": "red",
+                      "value": 60
+                    }
+                  ]
+                },
+                "unit": "s"
+              }
+            },
+            "gridPos": {
+              "h": 6,
+              "w": 8,
+              "x": 8,
+              "y": 16
+            }
+          },
+          {
+            "id": 8,
+            "title": "Test Coverage Trends",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "test_coverage_percentage",
+                "legendFormat": "Code Coverage %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "unit": "percent",
+                "min": 0,
+                "max": 100
+              }
+            },
+            "gridPos": {
+              "h": 6,
+              "w": 8,
+              "x": 16,
+              "y": 16
+            }
+          },
+          {
+            "id": 9,
+            "title": "Integration Test Health",
+            "type": "heatmap",
+            "targets": [
+              {
+                "expr": "integration_test_results",
+                "legendFormat": "{{service_name}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 24,
+              "x": 0,
+              "y": 22
+            }
+          },
+          {
+            "id": 10,
+            "title": "Resource Usage During Tests",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "avg(container_cpu_usage_seconds_total) by (pod)",
+                "legendFormat": "CPU Usage: {{pod}}"
+              },
+              {
+                "expr": "avg(container_memory_usage_bytes) by (pod)",
+                "legendFormat": "Memory Usage: {{pod}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                }
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 24,
+              "x": 0,
+              "y": 30
+            }
+          }
+        ],
+        "time": {
+          "from": "now-24h",
+          "to": "now"
+        },
+        "timepicker": {
+          "refresh_intervals": [
+            "5s",
+            "10s",
+            "30s",
+            "1m",
+            "5m",
+            "15m",
+            "30m",
+            "1h",
+            "2h",
+            "1d"
+          ]
+        },
+        "refresh": "30s",
+        "version": 1
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-metrics-exporter-config
+  namespace: chatdb-testing
+data:
+  metrics-exporter.py: |
+    #!/usr/bin/env python3
+    """
+    Test Metrics Exporter for Prometheus
+    Collects test results and exports them as Prometheus metrics
+    """
+    import json
+    import time
+    import os
+    import glob
+    import xml.etree.ElementTree as ET
+    from prometheus_client import start_http_server, Gauge, Counter, Histogram
+    from datetime import datetime
+    
+    # Prometheus metrics
+    test_executions_total = Counter('test_executions_total', 'Total number of test executions', ['test_type', 'suite'])
+    test_passes_total = Counter('test_passes_total', 'Total number of test passes', ['test_type', 'suite'])
+    test_failures_total = Counter('test_failures_total', 'Total number of test failures', ['test_type', 'suite'])
+    test_duration_seconds = Histogram('test_duration_seconds', 'Test execution duration', ['test_type', 'suite'])
+    test_coverage_percentage = Gauge('test_coverage_percentage', 'Test coverage percentage', ['service'])
+    service_recovery_time_seconds = Gauge('service_recovery_time_seconds', 'Service recovery time', ['service_name'])
+    chaos_experiments_total = Counter('chaos_experiments_total', 'Total chaos experiments')
+    chaos_experiments_successful = Counter('chaos_experiments_successful', 'Successful chaos experiments')
+    
+    class TestMetricsCollector:
+        def __init__(self, results_dir="/test-results"):
+            self.results_dir = results_dir
+        
+        def collect_unit_test_metrics(self):
+            """Collect unit test metrics from JUnit XML files"""
+            junit_pattern = f"{self.results_dir}/*/unit/*.xml"
+            for junit_file in glob.glob(junit_pattern):
+                try:
+                    self.parse_junit_file(junit_file)
+                except Exception as e:
+                    print(f"Error parsing {junit_file}: {e}")
+        
+        def parse_junit_file(self, junit_file):
+            """Parse JUnit XML file and extract metrics"""
+            tree = ET.parse(junit_file)
+            root = tree.getroot()
+            
+            if root.tag == 'testsuite':
+                suites = [root]
+            elif root.tag == 'testsuites':
+                suites = root.findall('testsuite')
+            else:
+                return
+            
+            for suite in suites:
+                suite_name = suite.get('name', 'unknown')
+                tests = int(suite.get('tests', 0))
+                failures = int(suite.get('failures', 0))
+                errors = int(suite.get('errors', 0))
+                time_taken = float(suite.get('time', 0))
+                
+                # Update Prometheus metrics
+                test_executions_total.labels(test_type='unit', suite=suite_name).inc(tests)
+                test_passes_total.labels(test_type='unit', suite=suite_name).inc(tests - failures - errors)
+                test_failures_total.labels(test_type='unit', suite=suite_name).inc(failures + errors)
+                test_duration_seconds.labels(test_type='unit', suite=suite_name).observe(time_taken)
+        
+        def collect_performance_metrics(self):
+            """Collect performance test metrics"""
+            perf_pattern = f"{self.results_dir}/*/load/*/final_stats.json"
+            for stats_file in glob.glob(perf_pattern):
+                try:
+                    with open(stats_file, 'r') as f:
+                        stats = json.load(f)
+                        
+                    if 'total' in stats:
+                        total = stats['total']
+                        test_executions_total.labels(test_type='load', suite='performance').inc(
+                            total.get('num_requests', 0)
+                        )
+                        test_failures_total.labels(test_type='load', suite='performance').inc(
+                            total.get('num_failures', 0)
+                        )
+                        test_duration_seconds.labels(test_type='load', suite='performance').observe(
+                            total.get('avg_response_time', 0) / 1000  # Convert to seconds
+                        )
+                        
+                except Exception as e:
+                    print(f"Error parsing performance stats {stats_file}: {e}")
+        
+        def collect_chaos_metrics(self):
+            """Collect chaos engineering metrics"""
+            chaos_pattern = f"{self.results_dir}/*/chaos/*/report.html"
+            successful_experiments = len(glob.glob(chaos_pattern))
+            
+            # Count total experiment directories
+            chaos_dir_pattern = f"{self.results_dir}/*/chaos/*"
+            total_experiments = len([d for d in glob.glob(chaos_dir_pattern) if os.path.isdir(d)])
+            
+            chaos_experiments_total.inc(total_experiments)
+            chaos_experiments_successful.inc(successful_experiments)
+            
+            # Collect recovery times from chaos results
+            for result_dir in glob.glob(chaos_dir_pattern):
+                if os.path.isdir(result_dir):
+                    recovery_file = os.path.join(result_dir, 'recovery_results.txt')
+                    if os.path.exists(recovery_file):
+                        try:
+                            with open(recovery_file, 'r') as f:
+                                for line in f:
+                                    if ':' in line:
+                                        service, time_str = line.strip().split(':', 1)
+                                        recovery_time = float(time_str.replace('s', ''))
+                                        service_recovery_time_seconds.labels(
+                                            service_name=service.strip()
+                                        ).set(recovery_time)
+                        except Exception as e:
+                            print(f"Error parsing recovery results: {e}")
+        
+        def collect_coverage_metrics(self):
+            """Collect test coverage metrics"""
+            coverage_pattern = f"{self.results_dir}/*/unit/coverage.xml"
+            for coverage_file in glob.glob(coverage_pattern):
+                try:
+                    tree = ET.parse(coverage_file)
+                    root = tree.getroot()
+                    
+                    # Parse coverage XML (simplified)
+                    coverage = root.get('line-rate', 0)
+                    if coverage:
+                        test_coverage_percentage.labels(service='overall').set(float(coverage) * 100)
+                        
+                except Exception as e:
+                    print(f"Error parsing coverage file {coverage_file}: {e}")
+        
+        def run_collection_loop(self):
+            """Main collection loop"""
+            print("Starting test metrics collection...")
+            
+            while True:
+                try:
+                    print(f"Collecting metrics at {datetime.now()}")
+                    
+                    self.collect_unit_test_metrics()
+                    self.collect_performance_metrics()
+                    self.collect_chaos_metrics()
+                    self.collect_coverage_metrics()
+                    
+                    print("Metrics collection completed")
+                    
+                except Exception as e:
+                    print(f"Error during metrics collection: {e}")
+                
+                # Wait for 60 seconds before next collection
+                time.sleep(60)
+    
+    def main():
+        # Start Prometheus metrics server
+        start_http_server(8000)
+        print("Test metrics exporter started on port 8000")
+        
+        # Start metrics collection
+        collector = TestMetricsCollector()
+        collector.run_collection_loop()
+    
+    if __name__ == "__main__":
+        main()
+  
+  requirements.txt: |
+    prometheus_client==0.17.1
+    lxml==4.9.3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-metrics-exporter
+  namespace: chatdb-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-metrics-exporter
+  template:
+    metadata:
+      labels:
+        app: test-metrics-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: metrics-exporter
+        image: python:3.11-slim
+        command: ["python3", "/app/metrics-exporter.py"]
+        ports:
+        - containerPort: 8000
+          name: metrics
+        volumeMounts:
+        - name: test-results
+          mountPath: /test-results
+          readOnly: true
+        - name: exporter-config
+          mountPath: /app
+        env:
+        - name: PYTHONPATH
+          value: "/app"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "125m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      initContainers:
+      - name: install-deps
+        image: python:3.11-slim
+        command: ["pip", "install", "-r", "/app/requirements.txt"]
+        volumeMounts:
+        - name: exporter-config
+          mountPath: /app
+      volumes:
+      - name: test-results
+        persistentVolumeClaim:
+          claimName: test-results-pvc
+      - name: exporter-config
+        configMap:
+          name: test-metrics-exporter-config
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-metrics-exporter
+  namespace: chatdb-testing
+  labels:
+    app: test-metrics-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  selector:
+    app: test-metrics-exporter
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: metrics
+  type: ClusterIP

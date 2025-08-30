@@ -107,21 +107,67 @@ test-integration: ## Run integration tests
 	kubectl exec -it -n chatdb-testing $$(kubectl get pod -l app=test-runner -n chatdb-testing -o name) -- pytest /tests/integration/ -v
 
 .PHONY: test-load
-test-load: ## Run load tests with Locust
-	@echo "Running load tests..."
+test-load: ## Run comprehensive load tests with multiple scenarios
+	@echo "Running comprehensive load tests..."
+	./scripts/run-performance-tests.sh
+
+.PHONY: test-load-quick
+test-load-quick: ## Run quick load tests with shorter duration
+	@echo "Running quick load tests..."
+	./scripts/run-performance-tests.sh --short-duration
+
+.PHONY: test-load-interactive
+test-load-interactive: ## Start interactive Locust for manual testing
+	@echo "Starting interactive load test environment..."
 	kubectl apply -f kubernetes/testing/locust.yaml
 	kubectl wait --for=condition=ready pod -l app=locust-master -n chatdb-testing --timeout=60s
 	@echo "Locust UI available at: http://localhost:8089"
 	kubectl port-forward -n chatdb-testing svc/locust-master 8089:8089
 
+.PHONY: setup-performance-monitoring
+setup-performance-monitoring: ## Setup Prometheus and Grafana for performance monitoring
+	@echo "Setting up performance monitoring..."
+	kubectl apply -f kubernetes/testing/prometheus-monitoring.yaml
+	kubectl wait --for=condition=ready pod -l app=prometheus -n chatdb-testing --timeout=120s
+	kubectl wait --for=condition=ready pod -l app=grafana -n chatdb-testing --timeout=120s
+	@echo "Monitoring setup complete!"
+	@echo "Grafana available at: http://localhost:3000 (admin/admin)"
+	@echo "Prometheus available at: http://localhost:9090"
+
 .PHONY: test-chaos
-test-chaos: ## Run chaos engineering tests
+test-chaos: ## Run comprehensive chaos engineering tests
+	@echo "Running comprehensive chaos engineering tests..."
+	./scripts/chaos-testing-suite.sh
+
+.PHONY: test-chaos-install
+test-chaos-install: ## Install Chaos Mesh only
 	@echo "Installing Chaos Mesh..."
-	kubectl create ns chaos-testing --dry-run=client -o yaml | kubectl apply -f -
-	helm repo add chaos-mesh https://charts.chaos-mesh.org
-	helm install chaos-mesh chaos-mesh/chaos-mesh -n chaos-testing --set dashboard.create=true
-	@echo "Running chaos tests..."
-	kubectl apply -f kubernetes/chaos/
+	./scripts/chaos-testing-suite.sh --install-only
+
+.PHONY: test-chaos-pods
+test-chaos-pods: ## Run pod failure chaos tests only
+	@echo "Running pod failure chaos tests..."
+	./scripts/chaos-testing-suite.sh --experiment pod-failures
+
+.PHONY: test-chaos-network
+test-chaos-network: ## Run network chaos tests only
+	@echo "Running network chaos tests..."
+	./scripts/chaos-testing-suite.sh --experiment network-chaos
+
+.PHONY: test-chaos-stress
+test-chaos-stress: ## Run resource stress tests only
+	@echo "Running resource stress tests..."
+	./scripts/chaos-testing-suite.sh --experiment resource-stress
+
+.PHONY: test-chaos-cleanup
+test-chaos-cleanup: ## Clean up all chaos experiments
+	@echo "Cleaning up chaos experiments..."
+	./scripts/chaos-testing-suite.sh --cleanup
+
+.PHONY: chaos-dashboard
+chaos-dashboard: ## Access Chaos Mesh dashboard
+	@echo "Chaos Mesh dashboard available at: http://localhost:2333"
+	kubectl port-forward -n chaos-testing svc/chaos-dashboard 2333:2333
 
 .PHONY: test-robustness
 test-robustness: ## Run robustness test suite
@@ -130,6 +176,51 @@ test-robustness: ## Run robustness test suite
 
 .PHONY: test-all
 test-all: test-unit test-integration test-load ## Run all tests
+
+.PHONY: setup-test-reporting
+setup-test-reporting: ## Setup comprehensive test result aggregation and reporting
+	@echo "Setting up test result aggregation and reporting..."
+	kubectl apply -f kubernetes/testing/test-results-aggregation.yaml
+	kubectl wait --for=condition=ready pod -l app=test-results-collector -n chatdb-testing --timeout=120s
+	kubectl wait --for=condition=ready pod -l app=test-results-web -n chatdb-testing --timeout=120s
+	@echo "Test reporting setup complete!"
+	@echo "Test results web interface will be available at: http://localhost:8080"
+
+.PHONY: setup-test-dashboard
+setup-test-dashboard: ## Setup Grafana dashboard for test metrics visualization
+	@echo "Setting up test metrics dashboard..."
+	kubectl apply -f kubernetes/testing/grafana-test-dashboard.yaml
+	kubectl wait --for=condition=ready pod -l app=test-metrics-exporter -n chatdb-testing --timeout=120s
+	@echo "Test dashboard setup complete!"
+	@echo "Metrics available at: http://localhost:8000/metrics"
+
+.PHONY: collect-test-results
+collect-test-results: ## Manually collect and aggregate test results
+	@echo "Collecting test results..."
+	kubectl exec -n chatdb-testing deployment/test-results-collector -- /scripts/collect-results.sh
+	@echo "Results collection completed"
+
+.PHONY: view-test-results
+view-test-results: ## Access test results web interface
+	@echo "Test results available at: http://localhost:8080"
+	kubectl port-forward -n chatdb-testing svc/test-results-web 8080:8080
+
+.PHONY: view-test-metrics
+view-test-metrics: ## Access test metrics endpoint
+	@echo "Test metrics available at: http://localhost:8000/metrics"
+	kubectl port-forward -n chatdb-testing svc/test-metrics-exporter 8000:8000
+
+.PHONY: test-complete-suite
+test-complete-suite: ## Run complete testing suite with result collection
+	@echo "Running complete ChatDB testing suite..."
+	@echo "This will execute: Unit → Integration → Load → Chaos → Results Collection"
+	make test-unit
+	make test-integration  
+	make test-load-quick
+	make test-chaos-pods --duration=60s
+	make collect-test-results
+	@echo "Complete testing suite finished!"
+	@echo "View results: make view-test-results"
 
 # ==================== Monitoring ====================
 

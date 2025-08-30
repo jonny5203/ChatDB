@@ -1,0 +1,179 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: training-orchestrator-cpu-stress
+  namespace: chaos-testing
+spec:
+  mode: one
+  duration: "300s"
+  stressors:
+    cpu:
+      workers: 4
+      load: 80
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: training-orchestrator
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: model-registry-memory-pressure
+  namespace: chaos-testing
+spec:
+  mode: all
+  duration: "180s"
+  stressors:
+    memory:
+      workers: 2
+      size: "256MB"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: model-registry
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: database-io-stress
+  namespace: chaos-testing
+spec:
+  mode: one
+  duration: "240s"
+  stressors:
+    hdd:
+      workers: 2
+      size: "100MB"
+      write-bytes: "10MB"
+  selector:
+    namespaces:
+      - chatdb-system
+    labelSelectors:
+      app: postgres
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: ml-engine-mixed-stress
+  namespace: chaos-testing
+spec:
+  mode: fixed-percent
+  value: "50"
+  duration: "200s"
+  stressors:
+    cpu:
+      workers: 2
+      load: 60
+    memory:
+      workers: 1
+      size: "128MB"
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: ml-engine
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: kafka-resource-exhaustion
+  namespace: chaos-testing
+spec:
+  mode: one
+  duration: "150s"
+  stressors:
+    cpu:
+      workers: 3
+      load: 90
+    memory:
+      workers: 2
+      size: "200MB"
+  selector:
+    namespaces:
+      - chatdb-system
+    labelSelectors:
+      app: kafka
+---
+# Gradual stress increase experiment
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: query-parser-gradual-stress
+  namespace: chaos-testing
+spec:
+  mode: one
+  duration: "600s"  # 10 minutes
+  stressors:
+    cpu:
+      workers: 1
+      load: 20  # Start light and increase with multiple experiments
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: query-parser
+---
+# System-wide stress test
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: system-wide-light-stress
+  namespace: chaos-testing
+spec:
+  mode: all
+  duration: "120s"
+  stressors:
+    cpu:
+      workers: 1
+      load: 30
+  selector:
+    namespaces:
+      - chatdb-services
+    expressionSelectors:
+      - key: app
+        operator: In
+        values: ["training-orchestrator", "query-parser", "ml-engine", "model-registry", "test-service"]
+---
+# File system stress for services with persistent storage
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: database-disk-io-delay
+  namespace: chaos-testing
+spec:
+  action: delay
+  mode: one
+  duration: "180s"
+  delay: "100ms"
+  percent: 50
+  path: "/var/lib/postgresql/data"
+  methods:
+    - read
+    - write
+  selector:
+    namespaces:
+      - chatdb-system
+    labelSelectors:
+      app: postgres
+---
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: model-registry-io-fault
+  namespace: chaos-testing
+spec:
+  action: fault
+  mode: one
+  duration: "60s"
+  errno: 5  # EIO error
+  percent: 10
+  path: "/tmp"
+  methods:
+    - write
+  selector:
+    namespaces:
+      - chatdb-services
+    labelSelectors:
+      app: model-registry

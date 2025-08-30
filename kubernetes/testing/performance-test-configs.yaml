@@ -1,0 +1,263 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: performance-test-configs
+  namespace: chatdb-testing
+data:
+  test-scenarios.json: |
+    {
+      "scenarios": {
+        "baseline": {
+          "description": "Baseline performance test with normal load",
+          "users": [100, 200, 300],
+          "spawn_rate": 10,
+          "duration": "10m",
+          "user_class": "LoadTestUser"
+        },
+        "spike": {
+          "description": "Spike test to check burst capacity",
+          "users": [50, 500, 1000],
+          "spawn_rate": 50,
+          "duration": "5m",
+          "user_class": "SpikeTestUser"
+        },
+        "soak": {
+          "description": "Long-running soak test for stability",
+          "users": [100, 150, 200],
+          "spawn_rate": 5,
+          "duration": "60m",
+          "user_class": "SoakTestUser"
+        },
+        "stress": {
+          "description": "Stress test to find breaking point",
+          "users": [200, 500, 1000, 1500, 2000],
+          "spawn_rate": 25,
+          "duration": "15m",
+          "user_class": "LoadTestUser"
+        }
+      },
+      "metrics": {
+        "success_criteria": {
+          "response_time_p50": 2000,
+          "response_time_p95": 5000,
+          "response_time_p99": 10000,
+          "error_rate": 0.01,
+          "requests_per_second": 50
+        },
+        "collection_interval": 10,
+        "report_formats": ["html", "json", "csv"]
+      }
+    }
+  performance-test-runner.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Performance test runner script
+    NAMESPACE="chatdb-testing"
+    SCENARIOS_FILE="/config/test-scenarios.json"
+    RESULTS_DIR="/results"
+    
+    # Function to run a specific test scenario
+    run_scenario() {
+        local scenario=$1
+        local users=$2
+        local spawn_rate=$3
+        local duration=$4
+        local user_class=$5
+        
+        echo "Running scenario: $scenario with $users users for $duration"
+        
+        # Create results directory for this scenario
+        mkdir -p "$RESULTS_DIR/$scenario"
+        
+        # Run Locust test
+        locust \
+            -f /config/locustfile.py \
+            --headless \
+            --users $users \
+            --spawn-rate $spawn_rate \
+            --run-time $duration \
+            --host http://training-orchestrator.chatdb-services.svc.cluster.local:8000 \
+            --html "$RESULTS_DIR/$scenario/report.html" \
+            --csv "$RESULTS_DIR/$scenario/results" \
+            --logfile "$RESULTS_DIR/$scenario/locust.log" \
+            --loglevel INFO \
+            --only-summary
+        
+        echo "Scenario $scenario completed. Results saved to $RESULTS_DIR/$scenario/"
+    }
+    
+    # Function to collect system metrics during tests
+    collect_metrics() {
+        local scenario=$1
+        local duration=$2
+        
+        echo "Starting metrics collection for scenario: $scenario"
+        
+        # Monitor CPU and memory usage
+        kubectl top pods -n chatdb-services --no-headers > "$RESULTS_DIR/$scenario/resource-usage-start.txt"
+        
+        # Wait for test duration
+        sleep ${duration%m}m
+        
+        kubectl top pods -n chatdb-services --no-headers > "$RESULTS_DIR/$scenario/resource-usage-end.txt"
+        
+        echo "Metrics collection completed for scenario: $scenario"
+    }
+    
+    # Main execution
+    main() {
+        echo "Starting performance test suite..."
+        
+        # Ensure results directory exists
+        mkdir -p "$RESULTS_DIR"
+        
+        # Parse scenarios from config
+        if [ -f "$SCENARIOS_FILE" ]; then
+            echo "Loading test scenarios from $SCENARIOS_FILE"
+            
+            # Run baseline test
+            echo "=== BASELINE TEST ==="
+            run_scenario "baseline" 300 10 "10m" "LoadTestUser"
+            
+            # Run spike test
+            echo "=== SPIKE TEST ==="
+            run_scenario "spike" 1000 50 "5m" "SpikeTestUser"
+            
+            # Run soak test (optional - very long)
+            if [ "$RUN_SOAK_TEST" = "true" ]; then
+                echo "=== SOAK TEST ==="
+                run_scenario "soak" 200 5 "60m" "SoakTestUser"
+            fi
+            
+            # Run stress test
+            echo "=== STRESS TEST ==="
+            run_scenario "stress" 2000 25 "15m" "LoadTestUser"
+            
+        else
+            echo "No scenarios configuration found, running default test"
+            run_scenario "default" 500 20 "10m" "LoadTestUser"
+        fi
+        
+        echo "Performance test suite completed!"
+        echo "Results available in: $RESULTS_DIR"
+        
+        # Generate summary report
+        generate_summary_report
+    }
+    
+    # Function to generate summary report
+    generate_summary_report() {
+        echo "Generating summary report..."
+        
+        cat > "$RESULTS_DIR/summary.html" << 'EOF'
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>ChatDB Performance Test Summary</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .scenario { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
+            .metrics { display: flex; gap: 20px; }
+            .metric { background: #f5f5f5; padding: 10px; border-radius: 5px; }
+        </style>
+    </head>
+    <body>
+        <h1>ChatDB Performance Test Summary</h1>
+        <p>Test execution completed at: $(date)</p>
+        
+        <div class="scenario">
+            <h2>Baseline Test Results</h2>
+            <p>Normal load test with 300 concurrent users</p>
+            <div class="metrics">
+                <div class="metric">P50 Response Time: <span id="baseline-p50">-</span>ms</div>
+                <div class="metric">P95 Response Time: <span id="baseline-p95">-</span>ms</div>
+                <div class="metric">Error Rate: <span id="baseline-errors">-</span>%</div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h2>Spike Test Results</h2>
+            <p>Burst load test with 1000 concurrent users</p>
+            <div class="metrics">
+                <div class="metric">P50 Response Time: <span id="spike-p50">-</span>ms</div>
+                <div class="metric">P95 Response Time: <span id="spike-p95">-</span>ms</div>
+                <div class="metric">Error Rate: <span id="spike-errors">-</span>%</div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h2>Stress Test Results</h2>
+            <p>High load test with 2000 concurrent users</p>
+            <div class="metrics">
+                <div class="metric">P50 Response Time: <span id="stress-p50">-</span>ms</div>
+                <div class="metric">P95 Response Time: <span id="stress-p95">-</span>ms</div>
+                <div class="metric">Error Rate: <span id="stress-errors">-</span>%</div>
+            </div>
+        </div>
+        
+        <h2>Test Artifacts</h2>
+        <ul>
+            <li><a href="baseline/report.html">Baseline Test Detailed Report</a></li>
+            <li><a href="spike/report.html">Spike Test Detailed Report</a></li>
+            <li><a href="stress/report.html">Stress Test Detailed Report</a></li>
+        </ul>
+    </body>
+    </html>
+    EOF
+        
+        echo "Summary report generated: $RESULTS_DIR/summary.html"
+    }
+    
+    # Execute main function
+    main "$@"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: performance-test-runner
+  namespace: chatdb-testing
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: performance-tester
+        image: locustio/locust:latest
+        command: ["/bin/bash", "/config/performance-test-runner.sh"]
+        env:
+        - name: RUN_SOAK_TEST
+          value: "false"  # Set to true for long soak tests
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: results
+          mountPath: /results
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: config
+        configMap:
+          name: performance-test-configs
+          defaultMode: 0755
+      - name: results
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: performance-test-results
+  namespace: chatdb-testing
+spec:
+  selector:
+    job-name: performance-test-runner
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP

@@ -5,49 +5,189 @@ metadata:
   namespace: chatdb-testing
 data:
   locustfile.py: |
-    from locust import HttpUser, task, between
+    from locust import HttpUser, task, between, events
     import random
     import json
+    import time
+    import csv
+    import os
+    from collections import defaultdict
     
-    class ChatDBUser(HttpUser):
+    # Performance metrics collection
+    request_stats = defaultdict(list)
+    
+    @events.request.add_listener
+    def my_request_handler(request_type, name, response_time, response_length, response, context, exception, start_time, url, **kwargs):
+        if exception:
+            print(f"Request failed: {request_type} {name} - {exception}")
+        else:
+            request_stats[name].append(response_time)
+    
+    class LoadTestUser(HttpUser):
+        """Standard load test user for normal operations"""
         wait_time = between(1, 3)
         
         def on_start(self):
-            """Initialize user session"""
             self.job_ids = []
+            self.user_id = random.randint(1, 10000)
         
         @task(5)
-        def submit_training_job(self):
-            """Submit a new training job"""
-            response = self.client.post("/jobs", json={
-                "model_name": f"load_test_model_{random.randint(1, 1000)}",
-                "dataset_location": f"s3://test/data_{random.randint(1, 100)}.csv",
-                "cpu_request": random.choice([1, 2, 4])
-            })
-            if response.status_code == 200:
-                job_id = response.json().get("id")
-                if job_id:
-                    self.job_ids.append(job_id)
+        def create_training_job(self):
+            """Create training job with realistic parameters"""
+            job_data = {
+                "model_name": f"model_{self.user_id}_{random.randint(1, 1000)}",
+                "dataset_location": f"s3://datasets/batch_{random.randint(1, 50)}.csv",
+                "cpu_request": random.choice([1, 2, 4, 8])
+            }
+            
+            with self.client.post("/jobs", json=job_data, catch_response=True, name="POST_/jobs") as response:
+                if response.status_code == 200:
+                    job_data = response.json()
+                    if job_data and 'id' in job_data:
+                        self.job_ids.append(job_data['id'])
+                        response.success()
+                    else:
+                        response.failure("No job ID in response")
+                else:
+                    response.failure(f"Status: {response.status_code}")
         
-        @task(3)
-        def check_job_status(self):
-            """Check status of a random job"""
+        @task(8)
+        def get_job_status(self):
+            """Check job status - most frequent operation"""
             if self.job_ids:
                 job_id = random.choice(self.job_ids)
-                self.client.get(f"/jobs/{job_id}")
+                with self.client.get(f"/jobs/{job_id}", catch_response=True, name="GET_/jobs/{id}") as response:
+                    if response.status_code == 200:
+                        response.success()
+                    elif response.status_code == 404:
+                        response.success()  # Job might have been cleaned up
+                        self.job_ids.remove(job_id)
+                    else:
+                        response.failure(f"Status: {response.status_code}")
+        
+        @task(3)
+        def list_all_jobs(self):
+            """List all jobs - moderate frequency"""
+            with self.client.get("/jobs", catch_response=True, name="GET_/jobs") as response:
+                if response.status_code == 200:
+                    jobs = response.json()
+                    if isinstance(jobs, list):
+                        response.success()
+                        # Update our job list with active jobs
+                        active_jobs = [job['id'] for job in jobs if 'id' in job]
+                        self.job_ids = list(set(self.job_ids + active_jobs[-5:]))  # Keep recent 5
+                    else:
+                        response.failure("Response not a list")
+                else:
+                    response.failure(f"Status: {response.status_code}")
+        
+        @task(10)
+        def health_check(self):
+            """Health checks - very frequent for monitoring"""
+            with self.client.get("/health", catch_response=True, name="GET_/health") as response:
+                if response.status_code == 200:
+                    health_data = response.json()
+                    if health_data.get('status') in ['ok', 'degraded']:
+                        response.success()
+                    else:
+                        response.failure(f"Unhealthy status: {health_data.get('status')}")
+                else:
+                    response.failure(f"Status: {response.status_code}")
+    
+    class SpikeTestUser(HttpUser):
+        """Spike test user for burst traffic simulation"""
+        wait_time = between(0.1, 0.5)  # Much more aggressive
+        
+        def on_start(self):
+            self.job_ids = []
+            self.burst_count = 0
+        
+        @task(10)
+        def rapid_job_creation(self):
+            """Rapid job creation for spike testing"""
+            self.burst_count += 1
+            job_data = {
+                "model_name": f"spike_test_{self.burst_count}",
+                "dataset_location": f"s3://spike-data/batch_{self.burst_count}.csv",
+                "cpu_request": random.choice([1, 2])
+            }
+            
+            with self.client.post("/jobs", json=job_data, catch_response=True, name="SPIKE_POST_/jobs") as response:
+                if response.status_code in [200, 201]:
+                    response.success()
+                elif response.status_code in [429, 503]:  # Rate limiting or service unavailable
+                    response.success()  # Expected during spike tests
+                else:
+                    response.failure(f"Unexpected status: {response.status_code}")
+        
+        @task(5)
+        def rapid_status_check(self):
+            """Rapid status checking during spikes"""
+            with self.client.get("/health", catch_response=True, name="SPIKE_GET_/health") as response:
+                if response.status_code == 200:
+                    response.success()
+                else:
+                    response.failure(f"Status: {response.status_code}")
+    
+    class SoakTestUser(HttpUser):
+        """Soak test user for long-term stability testing"""
+        wait_time = between(5, 15)  # Slower, sustained load
+        
+        def on_start(self):
+            self.job_ids = []
+            self.session_start = time.time()
+            self.operations_count = 0
+        
+        @task(3)
+        def sustained_job_creation(self):
+            """Sustained job creation over long periods"""
+            self.operations_count += 1
+            runtime = time.time() - self.session_start
+            
+            job_data = {
+                "model_name": f"soak_test_{int(runtime)}_{self.operations_count}",
+                "dataset_location": f"s3://soak-data/dataset_{self.operations_count}.csv",
+                "cpu_request": random.choice([1, 2])
+            }
+            
+            with self.client.post("/jobs", json=job_data, catch_response=True, name="SOAK_POST_/jobs") as response:
+                if response.status_code == 200:
+                    job_data = response.json()
+                    if 'id' in job_data:
+                        self.job_ids.append(job_data['id'])
+                    response.success()
+                else:
+                    response.failure(f"Status: {response.status_code}")
+        
+        @task(5)
+        def sustained_monitoring(self):
+            """Regular monitoring during soak test"""
+            with self.client.get("/health", catch_response=True, name="SOAK_GET_/health") as response:
+                if response.status_code == 200:
+                    health_data = response.json()
+                    # Check for memory leaks or degradation
+                    if health_data.get('status') == 'ok':
+                        response.success()
+                    else:
+                        response.failure(f"Service degraded: {health_data}")
+                else:
+                    response.failure(f"Status: {response.status_code}")
         
         @task(2)
-        def health_check(self):
-            """Check service health"""
-            self.client.get("/health")
-        
-        @task(1)
-        def submit_query(self):
-            """Submit a natural language query"""
-            self.client.post("/parse", json={
-                "query": f"Show me data from table_{random.randint(1, 10)}",
-                "context": {"database": "test_db"}
-            })
+        def cleanup_old_jobs(self):
+            """Check and clean up old jobs during soak test"""
+            if len(self.job_ids) > 10:
+                old_job_id = self.job_ids.pop(0)
+                with self.client.get(f"/jobs/{old_job_id}", catch_response=True, name="SOAK_GET_/jobs/{id}") as response:
+                    if response.status_code in [200, 404]:
+                        response.success()
+                    else:
+                        response.failure(f"Status: {response.status_code}")
+    
+    # Default user class for mixed workload
+    class ChatDBUser(LoadTestUser):
+        """Default mixed workload user"""
+        pass
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -67,7 +207,7 @@ spec:
       containers:
       - name: locust
         image: locustio/locust:latest
-        command: ["locust", "-f", "/config/locustfile.py", "--master", "--host=http://training-orchestrator.chatdb-services.svc.cluster.local:8000"]
+        command: ["locust", "-f", "/config/locustfile.py", "--master", "--host=http://training-orchestrator.chatdb-services.svc.cluster.local:8000", "--logfile=/tmp/locust.log", "--loglevel=INFO"]
         ports:
         - containerPort: 8089
           name: web
@@ -94,7 +234,7 @@ metadata:
   name: locust-worker
   namespace: chatdb-testing
 spec:
-  replicas: 3
+  replicas: 5
   selector:
     matchLabels:
       app: locust-worker
@@ -106,7 +246,7 @@ spec:
       containers:
       - name: locust
         image: locustio/locust:latest
-        command: ["locust", "-f", "/config/locustfile.py", "--worker", "--master-host=locust-master.chatdb-testing.svc.cluster.local"]
+        command: ["locust", "-f", "/config/locustfile.py", "--worker", "--master-host=locust-master.chatdb-testing.svc.cluster.local", "--logfile=/tmp/locust.log", "--loglevel=INFO"]
         volumeMounts:
         - name: config
           mountPath: /config

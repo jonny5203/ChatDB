@@ -5,6 +5,7 @@ CLAUDE.md
 .claude/
 .mcp.json
 docs/
+AGENTS.md
 
 # Development files and temporary artifacts
 *.pyc
